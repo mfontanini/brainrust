@@ -1,19 +1,19 @@
-use crate::Command;
-use std::io::{self, Read};
+use crate::{Command, InputOutput};
 use thiserror::Error;
 
 type ExecuteResult = Result<SideEffect, Error>;
 
-pub struct Interpreter {
+pub struct Interpreter<I: InputOutput> {
     cells: Vec<u8>,
     pointer: usize,
+    io: I,
 }
 
-impl Interpreter {
-    pub fn with_cells(cells: usize) -> Self {
+impl<I: InputOutput> Interpreter<I> {
+    pub fn new(io: I, cells: usize) -> Self {
         let cells = vec![0; cells];
         let pointer = 0;
-        Self { cells, pointer }
+        Self { cells, pointer, io }
     }
 
     pub fn execute(&mut self, program: &[Command]) -> Result<(), Error> {
@@ -57,15 +57,12 @@ impl Interpreter {
     }
 
     fn output(&mut self) -> ExecuteResult {
-        let output_char = char::from_u32(self.cells[self.pointer] as u32).unwrap_or('?');
-        print!("{}", output_char);
+        self.io.write(self.cells[self.pointer])?;
         Ok(SideEffect::default())
     }
 
     fn input(&mut self) -> ExecuteResult {
-        let mut buffer = [0; 1];
-        io::stdin().read_exact(&mut buffer)?;
-        self.cells[self.pointer] = buffer[0];
+        self.cells[self.pointer] = self.io.read()?;
         Ok(SideEffect::default())
     }
 
@@ -85,8 +82,12 @@ impl Interpreter {
         }
     }
 
-    fn current_data(&self) -> u8 {
+    pub fn current_data(&self) -> u8 {
         self.cells[self.pointer]
+    }
+
+    pub fn current_pointer(&self) -> usize {
+        self.pointer
     }
 }
 
@@ -113,5 +114,146 @@ pub enum Error {
     NoLoopEnd,
 
     #[error("io: {0}")]
-    Io(#[from] io::Error),
+    Io(#[from] std::io::Error),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mockall::{mock, predicate};
+
+    mock! {
+        InputOutput {
+
+        }
+
+        impl InputOutput for InputOutput {
+            fn read(&mut self) -> std::io::Result<u8>;
+            fn write(&mut self, data: u8) -> std::io::Result<()>;
+        }
+    }
+
+    #[test]
+    fn move_pointer() {
+        let mut interpreter = Interpreter::new(MockInputOutput::new(), 10);
+        interpreter
+            .execute(&[
+                Command::MovePointer { offset: 5 },
+                Command::MovePointer { offset: -3 },
+            ])
+            .expect("Failed to execute");
+        assert_eq!(2, interpreter.current_pointer());
+        assert_eq!(0, interpreter.current_data());
+    }
+
+    #[test]
+    fn move_past_tape_end() {
+        let mut interpreter = Interpreter::new(MockInputOutput::new(), 1);
+        let result = interpreter.execute(&[Command::MovePointer { offset: 1 }]);
+        assert!(matches!(result, Err(Error::OutOfBounds)));
+    }
+
+    #[test]
+    fn move_before_tape_beginning() {
+        let mut interpreter = Interpreter::new(MockInputOutput::new(), 1);
+        let result = interpreter.execute(&[Command::MovePointer { offset: -1 }]);
+        assert!(matches!(result, Err(Error::OutOfBounds)));
+    }
+
+    #[test]
+    fn modify_data() {
+        let mut interpreter = Interpreter::new(MockInputOutput::new(), 10);
+        interpreter
+            .execute(&[
+                Command::ModifyData { modifier: 5 },
+                Command::ModifyData { modifier: -3 },
+            ])
+            .expect("Failed to execute");
+        assert_eq!(0, interpreter.current_pointer());
+        assert_eq!(2, interpreter.current_data());
+    }
+
+    #[test]
+    fn modify_data_loop_around() {
+        let mut interpreter = Interpreter::new(MockInputOutput::new(), 10);
+        interpreter
+            .execute(&[Command::ModifyData { modifier: 567 }])
+            .expect("Failed to execute");
+        assert_eq!(55, interpreter.current_data());
+    }
+
+    #[test]
+    fn modify_data_loop_around_negative() {
+        let mut interpreter = Interpreter::new(MockInputOutput::new(), 10);
+        interpreter
+            .execute(&[Command::ModifyData { modifier: -567 }])
+            .expect("Failed to execute");
+        assert_eq!(201, interpreter.current_data());
+    }
+
+    #[test]
+    fn input() {
+        let mut io = MockInputOutput::new();
+        io.expect_read().once().returning(|| Ok(42));
+        let mut interpreter = Interpreter::new(io, 10);
+        interpreter
+            .execute(&[Command::Input])
+            .expect("Failed to execute");
+        assert_eq!(0, interpreter.current_pointer());
+        assert_eq!(42, interpreter.current_data());
+    }
+
+    #[test]
+    fn output() {
+        let mut io = MockInputOutput::new();
+        io.expect_write()
+            .once()
+            .with(predicate::eq(42))
+            .returning(|_| Ok(()));
+        let mut interpreter = Interpreter::new(io, 10);
+        interpreter
+            .execute(&[Command::ModifyData { modifier: 42 }, Command::Output])
+            .expect("Failed to execute");
+        assert_eq!(0, interpreter.current_pointer());
+        assert_eq!(42, interpreter.current_data());
+    }
+
+    #[test]
+    fn loop_skips_if_zero() {
+        let mut interpreter = Interpreter::new(MockInputOutput::new(), 10);
+        interpreter
+            .execute(&[
+                Command::LoopStart { end_index: 2 },
+                Command::ModifyData { modifier: 15 },
+                Command::LoopEnd { start_index: 0 },
+            ])
+            .expect("Failed to execute");
+        assert_eq!(0, interpreter.current_data());
+        assert_eq!(0, interpreter.current_pointer());
+    }
+
+    #[test]
+    fn loop_executes_if_non_zero() {
+        let mut io = MockInputOutput::new();
+        io.expect_write()
+            .once()
+            .with(predicate::eq(2))
+            .returning(|_| Ok(()));
+        io.expect_write()
+            .once()
+            .with(predicate::eq(1))
+            .returning(|_| Ok(()));
+        let mut interpreter = Interpreter::new(io, 10);
+        interpreter
+            .execute(&[
+                Command::ModifyData { modifier: 2 },
+                Command::LoopStart { end_index: 3 },
+                Command::Output,
+                Command::ModifyData { modifier: -1 },
+                Command::LoopEnd { start_index: 1 },
+            ])
+            .expect("Failed to execute");
+        assert_eq!(0, interpreter.current_data());
+        assert_eq!(0, interpreter.current_pointer());
+    }
 }

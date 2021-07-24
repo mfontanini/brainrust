@@ -42,7 +42,7 @@ fn main() {
             exit(1);
         }
     };
-    let mut interpreter = Interpreter::with_cells(30000);
+    let mut interpreter = Interpreter::new(DefaultInputOutput::default(), 30000);
     if let Err(e) = interpreter.execute(&program) {
         println!("Error executing program: {:?}", e);
     }
