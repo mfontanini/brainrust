@@ -1,13 +1,15 @@
-use brainrust::{command::parse, *};
+use brainrust::{command::parse, interpret::Error, *};
 use std::{
     env::args,
-    error::Error,
     fs::File,
-    io::{BufRead, BufReader, Read},
+    io::{self, BufRead, BufReader, Read},
     process::exit,
 };
 
-fn read_program<R>(mut processor: Preprocessor, input: R) -> Result<Vec<Command>, Box<dyn Error>>
+fn read_program<R>(
+    mut processor: Preprocessor,
+    input: R,
+) -> Result<Vec<Command>, Box<dyn std::error::Error>>
 where
     R: Read,
 {
@@ -42,8 +44,11 @@ fn main() {
             exit(1);
         }
     };
+    println!("> Executing program containing {} commands", program.len());
     let mut interpreter = Interpreter::new(DefaultInputOutput::default(), 30000);
-    if let Err(e) = interpreter.execute(&program) {
-        println!("Error executing program: {:?}", e);
+    match interpreter.execute(&program) {
+        Ok(_) => (),
+        Err(Error::Io(e)) if e.kind() == io::ErrorKind::UnexpectedEof => (),
+        Err(e) => println!("Error executing program: {:?}", e),
     }
 }
