@@ -25,7 +25,7 @@ impl Preprocessor {
     }
 
     pub fn program(mut self) -> Result<Vec<Command>, Error> {
-        if self.open_loop_indexes.len() > 0 {
+        if !self.open_loop_indexes.is_empty() {
             return Err(Error::OpenLoops(self.open_loop_indexes.len()));
         }
         self.store_current();
@@ -107,10 +107,9 @@ impl Preprocessor {
     }
 
     fn store_current(&mut self) {
-        match self.current_command.take() {
-            Some(command) => self.commands.push(command),
-            None => (),
-        };
+        if let Some(command) = self.current_command.take() {
+            self.commands.push(command);
+        }
     }
 }
 
