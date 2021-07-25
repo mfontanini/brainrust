@@ -1,4 +1,4 @@
-use brainrust::{command::parse, interpret::Error, *};
+use brainrust::{interpret::Error, *};
 use std::{
     env::args,
     fs::File,
@@ -17,7 +17,7 @@ where
     for line in input.lines() {
         let line = line?;
         for character in line.chars() {
-            let command = parse(&character);
+            let command = character.into();
             processor.process(&command)?;
         }
     }

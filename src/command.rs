@@ -21,16 +21,18 @@ pub enum Command {
     LoopEnd { start_index: usize },
 }
 
-pub fn parse(input: &char) -> RawCommand {
-    match input {
-        '>' => RawCommand::IncrementPointer,
-        '<' => RawCommand::DecrementPointer,
-        '+' => RawCommand::IncrementData,
-        '-' => RawCommand::DecrementData,
-        '.' => RawCommand::Output,
-        ',' => RawCommand::Input,
-        '[' => RawCommand::LoopStart,
-        ']' => RawCommand::LoopEnd,
-        _ => RawCommand::Noop,
+impl From<char> for RawCommand {
+    fn from(input: char) -> Self {
+        match input {
+            '>' => Self::IncrementPointer,
+            '<' => Self::DecrementPointer,
+            '+' => Self::IncrementData,
+            '-' => Self::DecrementData,
+            '.' => Self::Output,
+            ',' => Self::Input,
+            '[' => Self::LoopStart,
+            ']' => Self::LoopEnd,
+            _ => Self::Noop,
+        }
     }
 }
